@@ -14,7 +14,7 @@ def main():
     parser.add_argument('--env', type=str, default='Humanoid-v3')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--timestep', type=int, default=1000000)
-    parser.add_argument('--bandits_interval', type=int, default=1)
+    parser.add_argument('--bandits_interval', type=int, default=100)
     parser.add_argument('--obs_norm', action='store_true')
     parser.add_argument('--reward_norm', action='store_true')
     parser.add_argument('--reward_scaling', type=float, default=None)
