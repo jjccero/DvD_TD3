@@ -1,7 +1,7 @@
 import copy
 import multiprocessing
 import os
-from typing import List, Optional, Dict
+from typing import List, Optional
 
 import numpy as np
 import torch
@@ -9,10 +9,10 @@ from pbrl.algorithms.td3 import Policy, ReplayBuffer
 from pbrl.algorithms.td3.net import DoubleQ
 from pbrl.algorithms.trainer import Trainer
 from pbrl.common import Logger, update_dict
+from pbrl.common.bandit import Bandit
 from pbrl.common.pickle import CloudpickleWrapper
 
 from dvd_td3.async_worker import worker
-from dvd_td3.bandits import Bandits
 from dvd_td3.loss import DvD
 
 
@@ -40,7 +40,7 @@ class DvDTD3(Trainer):
         self.bandits = None
         self.div_weight = 0.0
         if bandits:
-            self.bandits = Bandits(arms=bandits)
+            self.bandits = Bandit(arms=bandits)
             self.div_weight = self.bandits.value
         self.sample_obs = sample_obs
         self.dvd = DvD()
@@ -244,7 +244,7 @@ class DvDTD3(Trainer):
         episode_rewards = np.zeros(self.population_size)
         episode_steps = np.zeros(self.population_size, dtype=int)
         returns = np.zeros(self.population_size)
-
+        last_reward_mean = -np.inf
         for remote in remotes:
             remote.send(('reset', None))
         observations = np.asarray([remote.recv() for remote in remotes])
@@ -292,8 +292,9 @@ class DvDTD3(Trainer):
                         test_info, reward_mean = self.test_async(remotes, episode_test)
                         update_dict(info, test_info, 'test/')
                         if self.bandits:
-                            self.bandits.update(reward_mean)
+                            self.bandits.update(reward_mean > last_reward_mean)
                             self.div_weight = self.bandits.sample()
+                            last_reward_mean = reward_mean
 
                 done = self.timestep >= timestep
                 if log_interval and (self.iteration % log_interval == 0 or done):
