@@ -18,7 +18,7 @@ python train.py
 I train agents using multiprocessing, and [demo_grad.py](demo_grad.py) shows how gradients are transferred in different
 processes.
 
-When DDP kernel matrix uses **dot product kernel** (or **cosine similarity**, see [loss.py](dvd_td3/loss.py)) as entry, we can take a
+When DPP kernel matrix uses **dot product kernel** (or **cosine similarity**, see [loss.py](dvd_td3/loss.py)) as entry, we can take a
 linear mapping to make the value between 0 and 1.
 
 Training may cost a lot because evaluation (bandits' update) after every iteration, so I reduced the frequency of
