@@ -5,15 +5,16 @@ from typing import List, Optional
 
 import numpy as np
 import torch
-from pbrl.algorithms.td3 import Policy, ReplayBuffer
+
+from dvd_td3.async_worker import worker
+from dvd_td3.loss import DvD
+from pbrl.algorithms.dqn.buffer import ReplayBuffer
 from pbrl.algorithms.td3.net import DoubleQ
+from pbrl.algorithms.td3.policy import Policy
 from pbrl.algorithms.trainer import Trainer
 from pbrl.common import Logger, update_dict
 from pbrl.common.bandit import Bandit
 from pbrl.common.pickle import CloudpickleWrapper
-
-from dvd_td3.async_worker import worker
-from dvd_td3.loss import DvD
 
 
 class DvDTD3(Trainer):
