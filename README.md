@@ -10,21 +10,24 @@ Install [pbrl](https://github.com/jjccero/pbrl) and clone this repo:
 ```
 git clone https://github.com/jjccero/DvD_TD3
 cd DvD_TD3
-python train.py
+python train_dvd.py
 ```
 
 ## Notes
 
-I train agents using multiprocessing, and [demo_grad.py](demo_grad.py) shows how gradients are transferred in different
-processes.
+### Kernel Matrix
 
-When DPP kernel matrix uses **dot product kernel** (or **cosine similarity**, see [loss.py](dvd_td3/loss.py)) as entry, we can take a
-linear mapping to make the value between 0 and 1.
+When DPP kernel matrix uses **dot product kernel** (or **cosine similarity**, see [loss.py](dvd/loss.py)) instead of
+**RBF** as entry, we can take a linear mapping to make the value between 0 and 1. The **beta** makes the matrix
+positive-definite.
 
-Training may cost a lot because evaluation (bandits' update) after every iteration, so I reduced the frequency of
-evaluation to 0.01.
+### log det
+
+I'm not sure whether to take the logarithms of determinant. The author believes that this does not matter. In addition,
+I find that the numerical instability of **log det** may be the reason for the gradients explosion or disappearance of
+Actors' network, so I use **det** instead of **log det** loss for optimization.
 
 ---
-Thank **Jack Parker-Holder** (the author of the paper) for his help.  
-And welcome to get in touch with me if you have any questions about this implementation.
+Thank **Jack Parker-Holder** (the author of the paper) for his help. And welcome to get in touch with me if you have any
+questions about this implementation.
 
