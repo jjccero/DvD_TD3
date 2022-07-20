@@ -18,9 +18,10 @@ def main():
     seed = args.seed
 
     policy_config = dict(
-        hidden_sizes=[256, 256, 256],
+        hidden_sizes=[256, 256],
         activation=torch.nn.ReLU,
         gamma=0.99,
+        obs_norm=True,
         device=torch.device('cuda:0')
     )
     pbt = DvD(
@@ -35,8 +36,8 @@ def main():
         start_timestep=5000,
         repeat=1000,
         timestep_update=1000,
-        log_interval=1000,
-        episode_num_test=2,
+        log_interval=5000,
+        episode_num_test=1,
         log_dir='dvd-td3/{}/{}-{}'.format(args.env, args.seed, int(time.time()))
     )
     pbt.seed(seed)

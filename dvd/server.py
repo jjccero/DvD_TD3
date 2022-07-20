@@ -1,12 +1,16 @@
+import copy
+from typing import Optional
+
 import numpy as np
 import torch
-from pbrl.algorithms.dqn.buffer import ReplayBuffer
-from pbrl.algorithms.trainer import Trainer
-from pbrl.common.map import auto_map
-from pbrl.pbt import PBT
 
 from dvd.bandit import TS
 from dvd.loss import LogDet
+from pbrl.algorithms.dqn.buffer import ReplayBuffer
+from pbrl.algorithms.trainer import Trainer
+from pbrl.common.map import auto_map
+from pbrl.common.rms import RunningMeanStd
+from pbrl.pbt import PBT
 
 
 class DvD(PBT):
@@ -72,6 +76,8 @@ class DvD(PBT):
         self.sample_size = sample_size
         self.bandit = TS(arms=arms)
         self.div_coef = 0.0
+        self.rms_obs: Optional[RunningMeanStd] = None
+        self.rms_reward: Optional[RunningMeanStd] = None
 
     @property
     def critic(self):
@@ -85,20 +91,35 @@ class DvD(PBT):
     def policy(self):
         return self.policies[self.best]
 
+    def normalize_observations(self, observations):
+        if self.rms_obs is not None:
+            observations = self.rms_obs.normalize(observations)
+        return observations
+
+    def normalize_rewards(self, rewards):
+        if self.rms_reward is not None:
+            rewards = self.rms_reward.normalize(rewards)
+        return rewards
+
     def critic_loss(self):
-        raw_observations, actions, observations_next, rewards, dones = self.buffer.sample(self.batch_size)
+        observations, actions, observations_next, rewards, dones = self.buffer.sample(self.batch_size)
 
-        observations = self.policy.normalize_observations(raw_observations)
-        observations_next = self.policy.normalize_observations(observations_next)
-        rewards = self.policy.normalize_rewards(rewards)
+        # use global RunningMeanStd when we share a central Q-function
+        glo_obs = self.normalize_observations(observations)
+        glo_obs_next = self.normalize_observations(observations_next)
 
-        observations, actions, observations_next, rewards, dones = auto_map(
+        rewards = self.normalize_rewards(rewards)
+
+        # use local RunningMeanStd
+        loc_obs_next = self.policy.normalize_observations(observations_next)
+
+        glo_obs, glo_obs_next, loc_obs_next, actions, rewards, dones = auto_map(
             self.policy.n2t,
-            (observations, actions, observations_next, rewards, dones)
+            (glo_obs, glo_obs_next, loc_obs_next, actions, rewards, dones)
         )
 
         with torch.no_grad():
-            actions_target, _ = self.policy.actor_target.forward(observations_next)
+            actions_target, _ = self.policy.actor_target.forward(loc_obs_next)
             noises_target = torch.clamp(
                 torch.randn_like(actions_target) * self.noise_target,
                 -self.noise_clip,
@@ -106,36 +127,35 @@ class DvD(PBT):
             )
             actions_target = torch.clamp(actions_target + noises_target, -1.0, 1.0)
 
-            q1_target, q2_target = self.critic_target.forward(observations_next, actions_target)
+            q1_target, q2_target = self.critic_target.forward(glo_obs_next, actions_target)
             q_target = torch.min(q1_target, q2_target)
             y = rewards + ~dones * self.gamma * q_target
 
-        q1, q2 = self.critic.forward(observations, actions)
+        q1, q2 = self.critic.forward(glo_obs, actions)
         td1_loss = 0.5 * torch.square(y - q1).mean()
         td2_loss = 0.5 * torch.square(y - q2).mean()
 
-        return td1_loss, td2_loss, raw_observations
+        return td1_loss, td2_loss, observations
 
-    def policy_loss(self, raw_observations):
+    def policy_loss(self, observations):
         indices = np.random.randint(self.batch_size, size=self.sample_size)
-        sampled_observations = auto_map(lambda x: x[indices], raw_observations)
+        sampled_observations = auto_map(lambda x: x[indices], observations)
         policy_losses = []
         embeddings = []
+        glo_obs = auto_map(self.policy.n2t, self.normalize_observations(observations))
         for policy in self.policies:
-            observations = policy.normalize_observations(raw_observations)
-            observations = auto_map(policy.n2t, observations)
+            loc_obs = auto_map(policy.n2t, policy.normalize_observations(observations))
 
-            actions, _ = policy.actor.forward(observations)
+            actions, _ = policy.actor.forward(loc_obs)
             if self.double_q:
-                q1, q2 = self.critic.forward(observations, actions)
+                q1, q2 = self.critic.forward(glo_obs, actions)
                 policy_loss = torch.min(q1, q2).mean()
             else:
-                policy_loss = self.critic.Q1(observations, actions).mean()
+                policy_loss = self.critic.Q1(glo_obs, actions).mean()
             policy_losses.append(policy_loss)
 
-            observations2 = policy.normalize_observations(sampled_observations)
-            observations2 = auto_map(policy.n2t, observations2)
-            embedding, _ = policy.actor.forward(observations2)
+            loc_obs_det = auto_map(policy.n2t, policy.normalize_observations(sampled_observations))
+            embedding, _ = policy.actor.forward(loc_obs_det)
             embeddings.append(embedding.flatten())
 
         embeddings = torch.stack(embeddings)
@@ -180,9 +200,6 @@ class DvD(PBT):
             if cmd == 'update':
                 for worker_id in range(self.worker_num):
                     timestep_local, buffer_slice, rms_obs, rms_reward = self.objs[worker_id]
-                    policy = self.policies[worker_id]
-                    policy.rms_obs = rms_obs
-                    policy.rms_reward = rms_reward
                     self.timestep += timestep_local
                     ptr = self.buffer.ptr
                     buffer_size = self.buffer.buffer_size
@@ -194,6 +211,18 @@ class DvD(PBT):
                         self.buffer.data[:timestep_local + ptr - buffer_size] = buffer_slice[buffer_size - ptr:]
                     self.buffer.ptr = (ptr + timestep_local) % buffer_size
                     self.buffer.len = min(self.buffer.len + timestep_local, buffer_size)
+
+                    if rms_obs is not None:
+                        self.policies[worker_id].rms_obs = rms_obs
+                        if worker_id == 0:
+                            self.rms_obs = copy.deepcopy(rms_obs)
+                        else:
+                            self.rms_obs.extend(rms_obs)
+                    if rms_reward is not None:
+                        if worker_id == 0:
+                            self.rms_reward = rms_reward
+                        else:
+                            self.rms_reward.extend(rms_reward)
 
                 loss_info = dict(td1=[], td2=[], det=[])
                 for worker_id in range(self.worker_num):

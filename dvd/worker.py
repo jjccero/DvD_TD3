@@ -3,13 +3,13 @@ import multiprocessing
 import gym
 import numpy as np
 import torch
+
+from dvd.td3 import DvDTD3
 from pbrl.algorithms.dqn import Runner
 from pbrl.algorithms.td3 import Policy
 from pbrl.algorithms.td3.net import DoubleQ
 from pbrl.common import Logger, update_dict
 from pbrl.env import DummyVecEnv
-
-from dvd.td3 import DvDTD3
 
 
 def worker(
@@ -54,8 +54,7 @@ def worker(
     runner_train = Runner(
         env=env_train,
         max_episode_steps=1000,
-        start_timestep=start_timestep // worker_num,
-        fill=True
+        start_timestep=start_timestep // worker_num
     )
     runner_test = Runner(env=env_test)
 
@@ -84,7 +83,7 @@ def worker(
         update_dict(info, train_info)
         update_dict(info, eval_info, 'test/')
 
-        if trainer.iteration % log_interval == 0:
+        if trainer.timestep % log_interval == 0:
             logger.log(trainer.timestep, info)
 
     remote.send(('close', None))

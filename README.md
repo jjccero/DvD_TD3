@@ -21,11 +21,17 @@ When DPP kernel matrix uses **dot product kernel** (or **cosine similarity**, se
 **RBF** as entry, we can take a linear mapping to make the value between 0 and 1. The **beta** makes the matrix
 positive-definite.
 
-### log det
+### logdet
 
 I'm not sure whether to take the logarithms of determinant. The author believes that this does not matter. In addition,
-I find that the numerical instability of **log det** may be the reason for the gradients explosion or disappearance of
-Actors' network, so I use **det** instead of **log det** loss for optimization.
+I find that the numerical instability of **logdet** may be the reason for the gradients explosion or disappearance of
+policy networks, so I use **det** instead of **logdet** for optimization.
+
+### State/Reward Filter
+
+In order to scale observations and rewards (when obs_norm=True), I calculate the local **RunningMeanStd** for each
+policy. When using the central Q-function, it needs to calculate the global **RunningMeanStd** via local
+**RunningMeanStd**s.
 
 ---
 Thank **Jack Parker-Holder** (the author of the paper) for his help. And welcome to get in touch with me if you have any
